@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>三维围棋</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0b0e1a;
+    font-family:sans-serif;color:#dde3f0}
+  #cv{position:absolute;inset:0;cursor:grab}
+  #toast{position:absolute;top:14px;left:50%;transform:translateX(-50%);background:#1a2140;
+    border:1px solid #4a5aa0;padding:8px 18px;border-radius:20px;font-size:13px;
+    display:none;z-index:99;pointer-events:none}
+  #help{position:absolute;left:10px;bottom:10px;font-size:11px;color:#7a86ad;
+    background:rgba(15,20,38,.7);padding:6px 10px;border-radius:8px;z-index:10}
+  #ui{position:absolute;top:10px;right:10px;width:285px;max-height:calc(100% - 20px);
+    overflow-y:auto;z-index:10}
+  .panel{background:rgba(15,20,38,.9);border:1px solid #2a3560;border-radius:10px;
+    padding:10px 12px;margin-bottom:8px}
+  .panel h3{font-size:13px;color:#8fa8ff;margin-bottom:6px}
+  .lbl{display:block;font-size:12px;margin:5px 0 2px;color:#aab4d4}
+  .dd{position:relative;margin-top:2px}
+  .ddCur{width:100%;font-size:12px;padding:5px 8px;background:#1a2140;color:#dde3f0;
+    border:1px solid #35406e;border-radius:6px;cursor:pointer}
+  .ddCur:after{content:'v';float:right;color:#8fa8ff}
+  .ddList{display:none;position:absolute;left:0;right:0;top:100%;background:#141a33;
+    border:1px solid #35406e;border-radius:6px;z-index:20;overflow:hidden}
+  .dd.open .ddList{display:block}
+  .ddItem{padding:5px 8px;font-size:12px;cursor:pointer}
+  .ddItem:hover{background:#242e55}
+  .ddItem.on{color:#8fa8ff}
+  .btn{width:100%;font-size:12px;padding:5px;margin-top:2px;background:#1a2140;
+    color:#dde3f0;border:1px solid #35406e;border-radius:6px;cursor:pointer;text-align:center}
+  .btn:hover{background:#242e55}
+  .btnrow{display:flex;gap:6px;margin-top:6px}
+  .btnrow .btn{flex:1;margin-top:0}
+  .sl{display:flex;align-items:center;gap:4px;margin-top:2px}
+  .sl .arr{width:20px;height:20px;line-height:18px;text-align:center;background:#1a2140;
+    border:1px solid #35406e;border-radius:4px;cursor:pointer;font-size:12px}
+  .slVal{flex:1;text-align:center;font-size:12px;color:#8fa8ff}
+  .sliceBox{text-align:center;width:31%}
+  .sliceBox canvas{border:1px solid #2a3560;border-radius:6px;background:#0e1226;cursor:pointer}
+  .sliceBox p{font-size:10px;color:#8fa8ff;margin:2px 0}
+  #slices{display:flex;justify-content:space-between}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="toast"></div>
+<div id="help">点击选点 · 再点或双击落子 · 拖动旋转 · 按钮缩放 · 轴标: X红 Y绿 Z蓝</div>
+
+<div id="ui">
+  <div class="panel">
+    <h3>对局设置 (改动立即生效)</h3>
+    <div class="lbl">棋盘大小</div>
+    <div class="dd" id="ddSize">
+      <div class="ddCur">5 x 5 x 5</div>
+      <div class="ddList">
+        <div class="ddItem" data-v="3">3 x 3 x 3</div>
+        <div class="ddItem on" data-v="5">5 x 5 x 5</div>
+        <div class="ddItem" data-v="7">7 x 7 x 7</div>
+        <div class="ddItem" data-v="9">9 x 9 x 9</div>
+      </div>
+    </div>
+    <div class="lbl">AI 难度</div>
+    <div class="dd" id="ddAI">
+      <div class="ddCur">简单</div>
+      <div class="ddList">
+        <div class="ddItem on" data-v="easy">简单</div>
+        <div class="ddItem" data-v="hard">困难</div>
+        <div class="ddItem" data-v="master">大师</div>
+        <div class="ddItem" data-v="masterPlus">大师+ (高CPU)</div>
+      </div>
+    </div>
+    <div class="lbl">模式</div>
+    <div class="dd" id="ddMode">
+      <div class="ddCur">人机 (AI执白)</div>
+      <div class="ddList">
+        <div class="ddItem on" data-v="ai">人机 (AI执白)</div>
+        <div class="ddItem" data-v="local">双人同屏</div>
+        <div class="ddItem" data-v="auto">AI 自动对弈</div>
+      </div>
+    </div>
+    <div class="btnrow"><div class="btn" id="startBtn">重新开局</div></div>
+  </div>
+
+  <div class="panel"><h3>视图</h3>
+    <div class="btnrow">
+      <div class="btn" id="zoomInBtn">放大 +</div>
+      <div class="btn" id="zoomOutBtn">缩小 -</div>
+    </div>
+    <div class="btnrow"><div class="btn" id="resetViewBtn">重置视角</div></div>
+  </div>
+
+  <div class="panel"><h3>当前回合</h3><div id="turnBox" style="text-align:center;font-size:15px;font-weight:bold;padding:4px">黑棋</div></div>
+
+  <div class="panel"><h3>对局信息</h3>
+    <div style="font-size:12px;line-height:1.7">
+      棋盘: <span id="infoN">5^3</span><br>
+      提子: 黑 <span id="capB">0</span> / 白 <span id="capW">0</span><br>
+      手数: <span id="moveNum">0</span><br>
+      形势: 黑 <span id="scB">0</span> / 白 <span id="scW">0</span><br>
+      领地: 黑 <span id="tB">0</span> / 白 <span id="tW">0</span>
+    </div>
+  </div>
+
+  <div class="panel"><h3>操作</h3>
+    <div class="btnrow">
+      <div class="btn" id="undoBtn">悔棋</div>
+      <div class="btn" id="passBtn">停一手</div>
+    </div>
+    <div class="btnrow">
+      <div class="btn" id="resignBtn">认输</div>
+      <div class="btn" id="restartBtn">重开</div>
+    </div>
+    <div class="btnrow">
+      <div class="btn" id="judgeBtn">形势判断</div>
+      <div class="btn" id="terrBtn">显示领地</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>剖面 (单击选点 · 双击落子)</h3>
+    <div id="slices">
+      <div class="sliceBox">
+        <p>XY Z=<span id="lz1">2</span></p>
+        <canvas id="sXY" width="82" height="82"></canvas>
+        <div class="sl"><div class="arr" data-s="Z" data-d="-1">&lt;</div>
+          <div class="slVal" id="svZ">2</div>
+          <div class="arr" data-s="Z" data-d="1">&gt;</div></div>
+      </div>
+      <div class="sliceBox">
+        <p>XZ Y=<span id="lz2">2</span></p>
+        <canvas id="sXZ" width="82" height="82"></canvas>
+        <div class="sl"><div class="arr" data-s="Y" data-d="-1">&lt;</div>
+          <div class="slVal" id="svY">2</div>
+          <div class="arr" data-s="Y" data-d="1">&gt;</div></div>
+      </div>
+      <div class="sliceBox">
+        <p>YZ X=<span id="lz3">2</span></p>
+        <canvas id="sYZ" width="82" height="82"></canvas>
+        <div class="sl"><div class="arr" data-s="X" data-d="-1">&lt;</div>
+          <div class="slVal" id="svX">2</div>
+          <div class="arr" data-s="X" data-d="1">&gt;</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= 全局状态 ================= */
+var N=5, board=null, currentTurn=1, mode='ai', aiLevel='easy';
+var historyStack=[], moveCount=0, capB=0, capW=0;
+var gameOver=false, isAIThinking=false, autoTimer=null;
+var pending=null, lastMovePos=null;
+var yaw=0.7, pitch=0.9, zoom=1;
+var sliceX=2, sliceY=2, sliceZ=2;
+var showTerr=false, lastTerr=null;
+
+var AI_CFG={
+  easy:      {cands:10, depth:0, budget:200,  rand:0.5},
+  hard:      {cands:20, depth:1, budget:1500, rand:0.1},
+  master:    {cands:28, depth:2, budget:6000,  rand:0.02},
+  masterPlus:{cands:40, depth:4, budget:20000, rand:0}
+};
+
+function opp(c){return c===1?2:1}
+function inB(x,y,z){return x>=0&&y>=0&&z>=0&&x<N&&y<N&&z<N}
+function boardOK(){return board&&board.length===N}
+function newBoard(){
+  board=[];
+  for(var x=0;x<N;x++){
+    var p=[];
+    for(var y=0;y<N;y++){
+      var r=[];for(var z=0;z<N;z++)r.push(0);
+      p.push(r);
+    }
+    board.push(p);
+  }
+}
+function cloneB(b){
+  var out=[];
+  for(var x=0;x<b.length;x++){
+    var p=[];
+    for(var y=0;y<b[x].length;y++)p.push(b[x][y].slice());
+    out.push(p);
+  }
+  return out;
+}
+
+/* ================= 规则 ================= */
+function group(x,y,z,b){
+  var color=b[x][y][z];
+  var seen={},st=[[x,y,z]],g=[],libs={};
+  seen[x+','+y+','+z]=1;
+  while(st.length){
+    var cur=st.pop();
+    g.push(cur);
+    var dirs=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+    for(var i=0;i<6;i++){
+      var nx=cur[0]+dirs[i][0],ny=cur[1]+dirs[i][1],nz=cur[2]+dirs[i][2];
+      if(!inB(nx,ny,nz))continue;
+      var k=nx+','+ny+','+nz;
+      if(b[nx][ny][nz]===0)libs[k]=1;
+      else if(b[nx][ny][nz]===color&&!seen[k]){seen[k]=1;st.push([nx,ny,nz])}
+    }
+  }
+  var libCount=0;for(var kk in libs)libCount++;
+  return{stones:g,libs:libCount};
+}
+function tryPlay(x,y,z,color,b){
+  if(b[x][y][z]!==0)return -1;
+  b[x][y][z]=color;
+  var caps=0;
+  var dirs=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  for(var i=0;i<6;i++){
+    var nx=x+dirs[i][0],ny=y+dirs[i][1],nz=z+dirs[i][2];
+    if(inB(nx,ny,nz)&&b[nx][ny][nz]===opp(color)){
+      var g=group(nx,ny,nz,b);
+      if(g.libs===0){
+        for(var j=0;j<g.stones.length;j++){
+          b[g.stones[j][0]][g.stones[j][1]][g.stones[j][2]]=0;
+        }
+        caps+=g.stones.length;
+      }
+    }
+  }
+  if(caps===0&&group(x,y,z,b).libs===0){b[x][y][z]=0;return -1}
+  return caps;
+}
+
+/* ================= AI ================= */
+function quickScore(x,y,z,bOrig,color){
+  var b=cloneB(bOrig);
+  var t=tryPlay(x,y,z,color,b);
+  if(t<0)return -1e9;
+  var s=t*120;
+  var gl=group(x,y,z,b).libs;
+  s+=Math.min(gl,6)*15;
+  var near=0;
+  var dirs=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  for(var i=0;i<6;i++){
+    var nx=x+dirs[i][0],ny=y+dirs[i][1],nz=z+dirs[i][2];
+    if(inB(nx,ny,nz)&&b[nx][ny][nz]===color)near++;
+  }
+  s+=near*20;
+  var c=(N-1)/2;
+  s-=(Math.abs(x-c)+Math.abs(y-c)+Math.abs(z-c))*3;
+  return s;
+}
+function evalBoard(b){
+  var s=0;
+  for(var x=0;x<N;x++)for(var y=0;y<N;y++)for(var z=0;z<N;z++){
+    if(b[x][y][z]===2)s+=group(x,y,z,b).libs*2+10;
+    else if(b[x][y][z]===1)s-=group(x,y,z,b).libs*2+10;
+  }
+  return s;
+}
+function genMoves(b,color){
+  var out=[];
+  for(var x=0;x<N;x++)for(var y=0;y<N;y++)for(var z=0;z<N;z++){
+    if(b[x][y][z]===0){
+      var tb=cloneB(b);
+      if(tryPlay(x,y,z,color,tb)!==-1)out.push([x,y,z]);
+    }
+  }
+  return out;
+}
+function search(b,depth,color,alpha,beta,deadline){
+  if(depth===0||Date.now()>deadline)return evalBoard(b);
+  var moves=genMoves(b,color);
+  if(!moves.length)return evalBoard(b);
+  if(moves.length>14){
+    moves.sort(function(){return Math.random()-0.5});
+    moves=moves.slice(0,14);
+  }
+  if(color===2){
+    var best=-1e9;
+    for(var i=0;i<moves.length;i++){
+      var nb=cloneB(b);tryPlay(moves[i][0],moves[i][1],moves[i][2],2,nb);
+      var v=search(nb,depth-1,1,alpha,beta,deadline);
+      if(v>best)best=v;
+      if(best>alpha)alpha=best;
+      if(beta<=alpha||Date.now()>deadline)break;
+    }
+    return best;
+  }else{
+    var best2=1e9;
+    for(var i2=0;i2<moves.length;i2++){
+      var nb2=cloneB(b);tryPlay(moves[i2][0],moves[i2][1],moves[i2][2],1,nb2);
+      var v2=search(nb2,depth-1,2,alpha,beta,deadline);
+      if(v2<best2)best2=v2;
+      if(best2<beta)beta=best2;
+      if(beta<=alpha||Date.now()>deadline)break;
+    }
+    return best2;
+  }
+}
+function aiMove(){
+  var cfg=AI_CFG[aiLevel],color=currentTurn;
+  var legal=genMoves(board,color);
+  if(!legal.length)return doPass(true);
+  var scored=[];
+  for(var i=0;i<legal.length;i++){
+    var s=quickScore(legal[i][0],legal[i][1],legal[i][2],board,color)+Math.random()*cfg.rand*100;
+    if(s>-1e8)scored.push({m:legal[i],s:s});
+  }
+  scored.sort(function(a,b){return b.s-a.s});
+  scored=scored.slice(0,cfg.cands);
+  if(!scored.length)return doPass(true);
+  if(cfg.depth===0){
+    var pick=scored[Math.floor(Math.random()*Math.min(3,scored.length))];
+    return playStone(pick.m[0],pick.m[1],pick.m[2],color);
+  }
+  var deadline=Date.now()+cfg.budget;
+  var best=scored[0].m,bestVal=-1e9;
+  for(var j=0;j<scored.length;j++){
+    var nb=cloneB(board);
+    tryPlay(scored[j].m[0],scored[j].m[1],scored[j].m[2],color,nb);
+    var v=search(nb,cfg.depth,opp(color),-1e9,1e9,deadline)+scored[j].s*0.01;
+    if(v>bestVal){bestVal=v;best=scored[j].m}
+    if(Date.now()>deadline)break;
+  }
+  playStone(best[0],best[1],best[2],color);
+}
+
+/* ================= 投影 ================= */
+var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+var CELL=44;
+var W,H,cx,cy;
+
+function proj(x,y,z){
+  var c=(N-1)/2;
+  var dx=(x-c)*CELL, dy=(y-c)*CELL, dz=(z-c)*CELL;
+  var rx=dz*Math.cos(yaw)+dx*Math.sin(yaw);
+  var rz=-dz*Math.sin(yaw)+dx*Math.cos(yaw);
+  var sx=rx;
+  var sy=-dy*Math.cos(pitch)+rz*Math.sin(pitch);
+  var depth=dy*Math.sin(pitch)+rz*Math.cos(pitch);
+  return[cx+sx*zoom,cy+sy*zoom,depth];
+}
+function resize(){
+  cv.width=window.innerWidth;cv.height=window.innerHeight;
+  W=cv.width;H=cv.height;
+  cx=Math.max(100,(W-300)/2);cy=H/2;
+  draw();
+}
+window.addEventListener('resize',resize);
+
+/* ================= 画面构建（只收集，不画）================= */
+function buildItems(){
+  var items=[];
+  var i,j;
+  for(i=0;i<N;i++)for(j=0;j<N;j++){
+    var lines=[
+      [[i,j,0],[i,j,N-1]],
+      [[i,0,j],[i,N-1,j]],
+      [[0,i,j],[N-1,i,j]]
+    ];
+    for(var li=0;li<3;li++){
+      var a=lines[li][0],b2=lines[li][1];
+      var p1=proj(a[0],a[1],a[2]),p2=proj(b2[0],b2[1],b2[2]);
+      var mid=proj((a[0]+b2[0])/2,(a[1]+b2[1])/2,(a[2]+b2[2])/2);
+      items.push({d:mid[2],t:'line',x1:p1[0],y1:p1[1],x2:p2[0],y2:p2[1]});
+    }
+  }
+  for(var x=0;x<N;x++)for(var y=0;y<N;y++)for(var z=0;z<N;z++){
+    var pd=proj(x,y,z);
+    items.push({d:pd[2]+0.01,t:'dot',x:pd[0],y:pd[1]});
+    if(board[x][y][z]){
+      items.push({d:pd[2],t:'stone',x:pd[0],y:pd[1],c:board[x][y][z]});
+    }
+  }
+  if(pending&&inB(pending[0],pending[1],pending[2])){
+    var pp=proj(pending[0],pending[1],pending[2]);
+    items.push({d:pp[2]+0.02,t:'sel',x:pp[0],y:pp[1]});
+  }
+  if(lastMovePos&&inB(lastMovePos[0],lastMovePos[1],lastMovePos[2])){
+    var pl=proj(lastMovePos[0],lastMovePos[1],lastMovePos[2]);
+    items.push({d:pl[2]+0.02,t:'last',x:pl[0],y:pl[1]});
+  }
+  /* 领地点：逐点校验后才入列 */
+  if(showTerr&&lastTerr&&lastTerr.listB&&lastTerr.listW){
+    var lb=lastTerr.listB,lw=lastTerr.listW,q,pt,pb;
+    for(q=0;q<lb.length;q++){
+      pt=lb[q];
+      if(!pt||pt.length<3||!inB(pt[0],pt[1],pt[2]))continue;
+      if(board[pt[0]][pt[1]][pt[2]]!==0)continue;
+      pb=proj(pt[0],pt[1],pt[2]);
+      items.push({d:pb[2]+0.015,t:'terr',x:pb[0],y:pb[1],c:1});
+    }
+    for(q=0;q<lw.length;q++){
+      pt=lw[q];
+      if(!pt||pt.length<3||!inB(pt[0],pt[1],pt[2]))continue;
+      if(board[pt[0]][pt[1]][pt[2]]!==0)continue;
+      pb=proj(pt[0],pt[1],pt[2]);
+      items.push({d:pb[2]+0.015,t:'terr',x:pb[0],y:pb[1],c:2});
+    }
+  }
+  /* 坐标轴标尺：X红 Y绿 Z蓝 */
+  var OFF=-0.6;
+  function addLbl(lx,ly,lz,txt,col,sz){
+    var p=proj(lx,ly,lz);
+    items.push({d:p[2]-0.03,t:'lbl',x:p[0],y:p[1],txt:txt,col:col,sz:sz});
+  }
+  for(var ai=0;ai<N;ai++){
+    addLbl(ai,OFF,OFF,String(ai+1),'#ff8866',10);
+    addLbl(OFF,ai,OFF,String(ai+1),'#66dd88',10);
+    addLbl(OFF,OFF,ai,String(ai+1),'#66aaff',10);
+  }
+  addLbl(N-0.7,OFF,OFF,'X','#ff8866',14);
+  addLbl(OFF,N-0.7,OFF,'Y','#66dd88',14);
+  addLbl(OFF,OFF,N-0.7,'Z','#66aaff',14);
+  return items;
+}
+
+/* ================= 画面渲染（只画，不构建）================= */
+function renderItems(items){
+  items.sort(function(a,b){return a.d-b.d;});
+  var R=CELL*0.36*zoom;
+  for(var k=0;k<items.length;k++){
+    var it=items[k];
+    if(it.t==='line'){
+      ctx.strokeStyle='#4a5aa0';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(it.x1,it.y1);ctx.lineTo(it.x2,it.y2);ctx.stroke();
+    }else if(it.t==='dot'){
+      ctx.fillStyle='#8a9adf';
+      ctx.fillRect(it.x-1.5,it.y-1.5,3,3);
+    }else if(it.t==='stone'){
+      ctx.beginPath();
+      ctx.ellipse(it.x,it.y+R*0.85,R*0.75,R*0.28,0,0,Math.PI*2);
+      ctx.fillStyle='rgba(0,0,0,0.35)';ctx.fill();
+      var grad=ctx.createRadialGradient(it.x-R*0.35,it.y-R*0.35,R*0.08,it.x,it.y,R);
+      if(it.c===1){
+        grad.addColorStop(0,'#6a6a6a');grad.addColorStop(0.5,'#222222');grad.addColorStop(1,'#050505');
+      }else{
+        grad.addColorStop(0,'#ffffff');grad.addColorStop(0.6,'#e0e3ea');grad.addColorStop(1,'#9aa0b0');
+      }
+      ctx.beginPath();ctx.arc(it.x,it.y,R,0,Math.PI*2);
+      ctx.fillStyle=grad;ctx.fill();
+      ctx.strokeStyle=it.c===1?'#000000':'#7a8090';
+      ctx.lineWidth=1;ctx.stroke();
+    }else if(it.t==='sel'){
+      ctx.beginPath();ctx.arc(it.x,it.y,R+5,0,Math.PI*2);
+      ctx.strokeStyle='#44ff88';ctx.lineWidth=2.5;ctx.stroke();ctx.lineWidth=1;
+    }else if(it.t==='last'){
+      ctx.beginPath();ctx.arc(it.x,it.y,R*0.35,0,Math.PI*2);
+      ctx.fillStyle='#ffcc44';ctx.fill();
+    }else if(it.t==='terr'){
+      ctx.beginPath();
+      ctx.arc(it.x,it.y,Math.max(2.5,R*0.24),0,Math.PI*2);
+      ctx.fillStyle=(it.c===1)?'rgba(80,120,255,0.55)':'rgba(255,120,90,0.55)';
+      ctx.fill();
+    }else if(it.t==='lbl'){
+      var fs=Math.max(7,it.sz*Math.min(1.6,Math.max(0.75,zoom)));
+      ctx.font='bold '+fs+'px sans-serif';
+      ctx.fillStyle=it.col;
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(it.txt,it.x,it.y);
+    }
+  }
+}
+
+/* ================= draw：保险丝版 ================= */
+function draw(){
+  if(!boardOK())return;
+  var items=null;
+  try{
+    items=buildItems();
+  }catch(e1){
+    toast('构建异常: '+(e1&&e1.message?e1.message:e1));   /* 旧画面保留 */
+    return;
+  }
+  ctx.fillStyle='#0b0e1a';ctx.fillRect(0,0,W,H);
+  try{
+    renderItems(items);
+  }catch(e2){
+    toast('渲染异常: '+(e2&&e2.message?e2.message:e2));
+  }
+}
+
+/* ================= 拾取 ================= */
+function pickPoint(mx,my){
+  if(!boardOK())return null;
+  var th=Math.max(13,26*zoom),bestD=th*th,best=null;
+  for(var x=0;x<N;x++)for(var y=0;y<N;y++)for(var z=0;z<N;z++){
+    if(board[x][y][z])continue;
+    var p=proj(x,y,z);
+    var d=(p[0]-mx)*(p[0]-mx)+(p[1]-my)*(p[1]-my);
+    if(d<bestD){
+      if(best&&d>bestD*0.5&&p[2]<best.p[2])continue;
+      bestD=d;best={p:p,x:x,y:y,z:z};
+    }
+  }
+  return best;
+}
+function humanCanPlay(){
+  if(!boardOK()||isAIThinking||gameOver)return false;
+  if(mode==='auto')return false;
+  if(mode==='ai'&&currentTurn!==1)return false;
+  return true;
+}
+
+cv.addEventListener('click',function(e){
+  if(dragMoved)return;
+  if(!humanCanPlay())return;
+  var best=pickPoint(e.clientX,e.clientY);
+  if(!best)return;
+  if(pending&&pending[0]===best.x&&pending[1]===best.y&&pending[2]===best.z){
+    playStone(best.x,best.y,best.z,(mode==='local')?currentTurn:1);
+  }else{
+    pending=[best.x,best.y,best.z];
+    draw();drawSlices();
+    toast('选点 '+(best.x+1)+','+(best.y+1)+','+(best.z+1)+' · 再点或双击确认');
+  }
+});
+cv.addEventListener('dblclick',function(e){
+  if(!humanCanPlay())return;
+  var best=pickPoint(e.clientX,e.clientY);
+  if(best&&board[best.x][best.y][best.z]===0){
+    playStone(best.x,best.y,best.z,(mode==='local')?currentTurn:1);
+  }
+});
+
+/* ---- 拖动旋转 ---- */
+var dragging=false,px=0,py=0,dragMoved=false;
+cv.addEventListener('pointerdown',function(e){
+  dragging=true;dragMoved=false;px=e.clientX;py=e.clientY;
+});
+window.addEventListener('pointermove',function(e){
+  if(!dragging)return;
+  var dx=e.clientX-px,dy=e.clientY-py;
+  if(Math.abs(dx)+Math.abs(dy)>3)dragMoved=true;
+  yaw+=dx*0.008;
+  pitch=Math.max(0.15,Math.min(1.5,pitch+dy*0.008));
+  px=e.clientX;py=e.clientY;
+  draw();
+});
+window.addEventListener('pointerup',function(){
+  setTimeout(function(){dragMoved=false},0);
+  dragging=false;
+});
+
+/* ---- 滚轮缩放（浏览器/编辑器预览有效）---- */
+cv.addEventListener('wheel',function(e){
+  e.preventDefault();
+  zoom=Math.max(0.3,Math.min(4,zoom*(e.deltaY<0?1.12:0.89)));
+  draw();
+},{passive:false});
+
+function setZoom(nz){zoom=Math.max(0.3,Math.min(4,nz));draw();}
+
+/* ================= 剖面图 ================= */
+function sliceGeom(scv){
+  var SL=scv.width,pad=Math.round(SL*0.13);
+  var span=SL-2*pad;
+  return{SL:SL,pad:pad,span:span,cs:span/(N-1)};
+}
+function drawSlice(id,coordOf){
+  var scv=document.getElementById(id);
+  if(!scv||!boardOK())return;
+  var c2=scv.getContext('2d');
+  var g=sliceGeom(scv),R=Math.max(2.5,g.cs*0.42);
+  c2.fillStyle='#0e1226';c2.fillRect(0,0,g.SL,g.SL);
+  c2.strokeStyle='#2a3560';c2.lineWidth=1;
+  for(var i=0;i<N;i++){
+    var t=g.pad+i*g.cs;
+    c2.beginPath();c2.moveTo(t,g.pad);c2.lineTo(t,g.pad+g.span);c2.stroke();
+    c2.beginPath();c2.moveTo(g.pad,t);c2.lineTo(g.pad+g.span,t);c2.stroke();
+  }
+  for(var a=0;a<N;a++)for(var b=0;b<N;b++){
+    var gp=coordOf(a,b);
+    if(!gp||!inB(gp[0],gp[1],gp[2]))continue;
+    var v=board[gp[0]][gp[1]][gp[2]];
+    var X=g.pad+a*g.cs,Y=g.pad+b*g.cs;
+    if(v){
+      c2.beginPath();c2.arc(X,Y,R,0,Math.PI*2);
+      c2.fillStyle=v===1?'#151515':'#eeeeee';c2.fill();
+      c2.strokeStyle=v===1?'#555555':'#999999';c2.stroke();
+    }
+    if(pending&&pending[0]===gp[0]&&pending[1]===gp[1]&&pending[2]===gp[2]){
+      c2.strokeStyle='#44ff88';c2.lineWidth=2;
+      c2.beginPath();c2.arc(X,Y,R+1.5,0,Math.PI*2);c2.stroke();c2.lineWidth=1;
+    }
+    if(lastMovePos&&lastMovePos[0]===gp[0]&&lastMovePos[1]===gp[1]&&lastMovePos[2]===gp[2]){
+      c2.strokeStyle='#ffcc44';c2.lineWidth=2;
+      c2.beginPath();c2.arc(X,Y,R+1.5,0,Math.PI*2);c2.stroke();c2.lineWidth=1;
+    }
+  }
+}
+function slicePointFromEvent(scv,ev,coordOf){
+  if(!boardOK())return null;
+  var r=scv.getBoundingClientRect();
+  var g=sliceGeom(scv);
+  var lx=(ev.clientX-r.left)*(g.SL/r.width);
+  var ly=(ev.clientY-r.top)*(g.SL/r.height);
+  var a=Math.round((lx-g.pad)/g.cs);
+  var b=Math.round((ly-g.pad)/g.cs);
+  if(a<0||a>=N||b<0||b>=N)return null;
+  var gp=coordOf(a,b);
+  if(!gp||!inB(gp[0],gp[1],gp[2]))return null;
+  return gp;
+}
+function bindSlice(id,coordOf){
+  var scv=document.getElementById(id);
+  scv.addEventListener('click',function(ev){
+    if(!humanCanPlay())return;
+    var gp=slicePointFromEvent(scv,ev,coordOf);
+    if(gp&&board[gp[0]][gp[1]][gp[2]]===0){
+      pending=[gp[0],gp[1],gp[2]];
+      draw();drawSlices();
+      toast('选点 '+(gp[0]+1)+','+(gp[1]+1)+','+(gp[2]+1)+' · 双击此处落子');
+    }
+  });
+  scv.addEventListener('dblclick',function(ev){
+    if(!humanCanPlay())return;
+    var gp=slicePointFromEvent(scv,ev,coordOf);
+    if(gp&&board[gp[0]][gp[1]][gp[2]]===0){
+      playStone(gp[0],gp[1],gp[2],(mode==='local')?currentTurn:1);
+    }
+  });
+}
+function drawSlices(){
+  if(!boardOK())return;
+  drawSlice('sXY',function(a,b){return[a,b,sliceZ]});
+  drawSlice('sXZ',function(a,b){return[a,sliceY,b]});
+  drawSlice('sYZ',function(a,b){return[sliceX,a,b]});
+  document.getElementById('lz1').textContent=sliceZ;
+  document.getElementById('lz2').textContent=sliceY;
+  document.getElementById('lz3').textContent=sliceX;
+  document.getElementById('svZ').textContent=sliceZ;
+  document.getElementById('svY').textContent=sliceY;
+  document.getElementById('svX').textContent=sliceX;
+}
+function syncSlices(){
+  var m=Math.floor((N-1)/2);
+  sliceX=m;sliceY=m;sliceZ=m;
+  drawSlices();
+}
+
+/* ================= 自绘下拉 ================= */
+function initDD(id,onPick){
+  var dd=document.getElementById(id);
+  var cur=dd.querySelector('.ddCur');
+  cur.addEventListener('click',function(e){
+    e.stopPropagation();
+    var wasOpen=dd.className==='dd open';
+    closeAllDD();
+    if(!wasOpen)dd.className='dd open';
+  });
+  var items=dd.querySelectorAll('.ddItem');
+  for(var i=0;i<items.length;i++){
+    (function(it){
+      it.addEventListener('click',function(e){
+        e.stopPropagation();
+        for(var j=0;j<items.length;j++)items[j].className='ddItem';
+        it.className='ddItem on';
+        cur.textContent=it.textContent;
+        dd.className='dd';
+        onPick(it.getAttribute('data-v'));
+      });
+    })(items[i]);
+  }
+}
+function closeAllDD(){
+  var dds=document.querySelectorAll('.dd.open');
+  for(var i=0;i<dds.length;i++)dds[i].className='dd';
+}
+window.addEventListener('click',closeAllDD);
+
+/* ================= 剖面箭头 ================= */
+(function(){
+  var arrs=document.querySelectorAll('.arr');
+  for(var i=0;i<arrs.length;i++){
+    (function(el){
+      el.addEventListener('click',function(e){
+        e.stopPropagation();
+        var s=el.getAttribute('data-s'),d=+el.getAttribute('data-d');
+        if(s==='X')sliceX=Math.max(0,Math.min(N-1,sliceX+d));
+        if(s==='Y')sliceY=Math.max(0,Math.min(N-1,sliceY+d));
+        if(s==='Z')sliceZ=Math.max(0,Math.min(N-1,sliceZ+d));
+        drawSlices();
+      });
+    })(arrs[i]);
+  }
+})();
+
+/* ================= 领地估算 ================= */
+function territoryEstimate(){
+  var res={terrB:0,terrW:0,listB:[],listW:[]};
+  if(!boardOK())return res;
+  var visited={};
+  var dirs=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  for(var x=0;x<N;x++)for(var y=0;y<N;y++)for(var z=0;z<N;z++){
+    if(board[x][y][z]!==0)continue;
+    var k0=x+','+y+','+z;
+    if(visited[k0])continue;
+    var st=[[x,y,z]],region=[],touch1=false,touch2=false;
+    visited[k0]=1;
+    while(st.length){
+      var cur=st.pop();
+      region.push(cur);
+      for(var i=0;i<6;i++){
+        var nx=cur[0]+dirs[i][0],ny=cur[1]+dirs[i][1],nz=cur[2]+dirs[i][2];
+        if(!inB(nx,ny,nz))continue;
+        var v=board[nx][ny][nz];
+        if(v===1){touch1=true;}
+        else if(v===2){touch2=true;}
+        else{
+          var k=nx+','+ny+','+nz;
+          if(!visited[k]){visited[k]=1;st.push([nx,ny,nz]);}
+        }
+      }
+    }
+    if(touch1&&!touch2){
+      res.terrB+=region.length;
+      res.listB=res.listB.concat(region);
+    }else if(touch2&&!touch1){
+      res.terrW+=region.length;
+      res.listW=res.listW.concat(region);
+    }
+  }
+  return res;
+}
+function judgeScore(){
+  if(!boardOK())return;
+  var e=territoryEstimate();
+  var bs=countStones(1),ws=countStones(2);
+  var bt=bs+e.terrB,wt=ws+e.terrW;
+  var lead=bt-wt+0.5;
+  var msg='形势: 黑'+bt+'(子'+bs+'+地'+e.terrB+') 白'+wt+'(子'+ws+'+地'+e.terrW+') · ';
+  if(lead>0)msg+='黑领先'+lead.toFixed(1);
+  else if(lead<0)msg+='白领先'+(-lead).toFixed(1);
+  else msg+='均势';
+  toast(msg);
+}
+function toggleTerr(){
+  try{
+    if(!showTerr){
+      lastTerr=territoryEstimate();
+      showTerr=true;
+      document.getElementById('terrBtn').textContent='隐藏领地';
+    }else{
+      showTerr=false;
+      document.getElementById('terrBtn').textContent='显示领地';
+    }
+  }catch(err){
+    showTerr=false;
+    document.getElementById('terrBtn').textContent='显示领地';
+    toast('领地计算异常: '+(err&&err.message?err.message:err));
+  }
+  draw();
+}
+
+/* ================= 对局流程 ================= */
+function playStone(x,y,z,color){
+  if(!boardOK()||!inB(x,y,z)||board[x][y][z]!==0)return;
+  var test=cloneB(board);
+  if(tryPlay(x,y,z,color,test)<0){toast('禁着点');return;}
+  historyStack.push({b:cloneB(board),capB:capB,capW:capW,currentTurn:currentTurn,moveCount:moveCount});
+  var caps=tryPlay(x,y,z,color,board);
+  if(caps<0)return;
+  if(color===1)capB+=caps;else capW+=caps;
+  moveCount++;
+  lastMovePos=[x,y,z];
+  pending=null;
+  currentTurn=opp(color);
+  draw();updateUI();drawSlices();
+  afterTurn();
+}
+function afterTurn(){
+  if(!boardOK())return;
+  var empty=0;
+  for(var x=0;x<N;x++)for(var y=0;y<N;y++)for(var z=0;z<N;z++)if(!board[x][y][z])empty++;
+  if(empty===0){endGame('棋盘已满');return}
+  if(gameOver)return;
+  if(mode==='auto')autoTimer=setTimeout(triggerAI,400);
+  else if(mode==='ai'&&currentTurn===2)triggerAI();
+}
+function doPass(byAI){
+  if(gameOver)return;
+  if(!byAI){
+    historyStack.push({b:cloneB(board),capB:capB,capW:capW,currentTurn:currentTurn,moveCount:moveCount});
+    moveCount++;currentTurn=opp(currentTurn);
+    updateUI();afterTurn();
+  }else{
+    toast('AI 停一手');currentTurn=opp(currentTurn);updateUI();
+    if(mode==='auto')autoTimer=setTimeout(triggerAI,400);
+    else if(mode==='ai'&&currentTurn===2)triggerAI();
+  }
+}
+function undoMove(){
+  if(isAIThinking){toast('AI 思考中');return}
+  if(!historyStack.length){toast('没有可悔的棋');return}
+  if(mode==='auto'){toast('自动对弈不支持悔棋');return}
+  var steps=1;
+  if(mode==='ai'){
+    var snap=historyStack[historyStack.length-1];
+    steps=(snap.currentTurn===2&&historyStack.length>=2)?2:1;
+  }
+  for(var i=0;i<steps&&historyStack.length;i++){
+    var s=historyStack.pop();
+    board=s.b;capB=s.capB;capW=s.capW;currentTurn=s.currentTurn;moveCount=s.moveCount;
+  }
+  lastMovePos=null;pending=null;
+  draw();updateUI();drawSlices();toast('已悔棋');
+}
+function triggerAI(){
+  if(gameOver)return;
+  isAIThinking=true;
+  toast('AI('+aiLevel+')思考中');
+  setTimeout(function(){
+    try{aiMove();}
+    catch(err){toast('AI 异常，已恢复');}
+    isAIThinking=false;
+    draw();
+  },80);
+}
+function countStones(c){
+  var n=0;
+  for(var x=0;x<N;x++)for(var y=0;y<N;y++)for(var z=0;z<N;z++)if(board[x][y][z]===c)n++;
+  return n;
+}
+function endGame(msg){
+  gameOver=true;
+  if(autoTimer){clearTimeout(autoTimer);autoTimer=null;}
+  var e=territoryEstimate();
+  var bs=countStones(1)+e.terrB, ws=countStones(2)+e.terrW;
+  var score=bs-ws+0.5;
+  toast(msg+' 终局: 黑'+bs+' 白'+ws+' → '+(score>0?'黑胜'+score.toFixed(1):'白胜'+(-score).toFixed(1)));
+  updateUI();
+}
+function updateUI(){
+  var tb=document.getElementById('turnBox');
+  if(tb)tb.textContent=gameOver?'对局结束':(currentTurn===1?'黑棋':'白棋');
+  var cb=document.getElementById('capB');
+  if(cb)cb.textContent=capB;
+  var cw=document.getElementById('capW');
+  if(cw)cw.textContent=capW;
+  var mn=document.getElementById('moveNum');
+  if(mn)mn.textContent=moveCount;
+  var inf=document.getElementById('infoN');
+  if(inf)inf.textContent=N+'^3';
+  var e=null;
+  try{e=territoryEstimate();lastTerr=e;}
+  catch(err){e={terrB:0,terrW:0,listB:[],listW:[]};}
+  var scB=document.getElementById('scB');
+  if(scB)scB.textContent=countStones(1)+e.terrB;
+  var scW=document.getElementById('scW');
+  if(scW)scW.textContent=countStones(2)+e.terrW;
+  var tB=document.getElementById('tB');
+  if(tB)tB.textContent=e.terrB;
+  var tW=document.getElementById('tW');
+  if(tW)tW.textContent=e.terrW;
+}
+var toastTimer;
+function toast(msg){
+  var t=document.getElementById('toast');
+  t.textContent=msg;t.style.display='block';
+  if(toastTimer)clearTimeout(toastTimer);
+  toastTimer=setTimeout(function(){t.style.display='none'},3000);
+}
+function startGame(){
+  if(autoTimer){clearTimeout(autoTimer);autoTimer=null;}
+  newBoard();historyStack=[];moveCount=0;capB=0;capW=0;
+  currentTurn=1;gameOver=false;isAIThinking=false;pending=null;lastMovePos=null;
+  syncSlices();updateUI();draw();
+  toast('开局 '+N+'^3 · '+(mode==='auto'?'AI自动对弈':(mode==='local'?'双人同屏':'人机')));
+  if(mode==='auto')autoTimer=setTimeout(triggerAI,600);
+}
+
+/* ================= 事件绑定 ================= */
+bindSlice('sXY',function(a,b){return[a,b,sliceZ]});
+bindSlice('sXZ',function(a,b){return[a,sliceY,b]});
+bindSlice('sYZ',function(a,b){return[sliceX,a,b]});
+
+initDD('ddSize',function(v){N=+v;startGame();});
+initDD('ddMode',function(v){mode=v;startGame();});
+initDD('ddAI',function(v){aiLevel=v;});
+
+document.getElementById('startBtn').addEventListener('click',function(e){
+  e.stopPropagation();startGame();
+});
+document.getElementById('restartBtn').addEventListener('click',function(e){
+  e.stopPropagation();startGame();
+});
+document.getElementById('undoBtn').addEventListener('click',function(e){
+  e.stopPropagation();undoMove();
+});
+document.getElementById('passBtn').addEventListener('click',function(e){
+  e.stopPropagation();doPass(false);
+});
+document.getElementById('resignBtn').addEventListener('click',function(e){
+  e.stopPropagation();endGame('认输');
+});
+document.getElementById('zoomInBtn').addEventListener('click',function(e){
+  e.stopPropagation();setZoom(zoom*1.25);
+});
+document.getElementById('zoomOutBtn').addEventListener('click',function(e){
+  e.stopPropagation();setZoom(zoom/1.25);
+});
+document.getElementById('resetViewBtn').addEventListener('click',function(e){
+  e.stopPropagation();yaw=0.7;pitch=0.9;zoom=1;draw();
+});
+document.getElementById('judgeBtn').addEventListener('click',function(e){
+  e.stopPropagation();judgeScore();
+});
+document.getElementById('terrBtn').addEventListener('click',function(e){
+  e.stopPropagation();toggleTerr();
+});
+
+window.addEventListener('keydown',function(e){
+  if(e.code==='Space'||e.code==='Enter'){
+    if(e.code==='Space')e.preventDefault();
+    if(pending&&humanCanPlay()){
+      playStone(pending[0],pending[1],pending[2],(mode==='local')?currentTurn:1);
+    }
+    return;
+  }
+  if(e.key==='u'||e.key==='U')undoMove();
+  else if(e.key==='p'||e.key==='P')doPass(false);
+});
+
+/* ================= WE 接入 ================= */
+window.wallpaperPropertyListener={
+  applyUserProperties:function(p){}
+};
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){
+    if(autoTimer){clearTimeout(autoTimer);autoTimer=null;}
+  }else if(mode==='auto'&&!gameOver&&!isAIThinking&&!autoTimer){
+    autoTimer=setTimeout(triggerAI,800);
+  }
+});
+
+/* ================= 启动 ================= */
+try{
+  startGame();
+  resize();
+}catch(err){
+  document.body.style.background='#6b1a1a';
+  document.getElementById('toast').textContent='初始化失败: '+err.message;
+  document.getElementById('toast').style.display='block';
+}
+</script>
+</body>
+</html>
