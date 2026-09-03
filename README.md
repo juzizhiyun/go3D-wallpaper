@@ -36,16 +36,9 @@
 ---
 
 ## 📦 安装（Wallpaper Engine）
+上线steam
 
-1. 打开 Wallpaper Engine → 壁纸编辑器 → **从文件创建壁纸**
-2. 选择本项目文件夹（含 `index.html` 和 `project.json`）
-3. 应用即可
-
-或将项目文件夹放入：
-`Steam\steamapps\common\wallpaper_engine\projects\myprojects\`
-
-> 也可以直接双击 `index.html` 在浏览器中游玩，
-> 浏览器里额外支持：滚轮缩放、空格/回车确认落子、U 悔棋、P 停一手。
+https://steamcommunity.com/sharedfiles/filedetails/?id=3794810272
 
 ---
 
@@ -76,8 +69,4 @@
 | 困难 | 1 | 20 |
 | 大师 | 2 | 28 |
 | 大师+ | 4 | 40（高 CPU）|
-
----
-
-## 📁 文件结构
 
